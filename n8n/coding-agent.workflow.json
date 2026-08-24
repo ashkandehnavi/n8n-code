@@ -1,0 +1,1162 @@
+{
+  "name": "final exam",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## معماری چند-عاملی\n\n1. **Planner** — تجزیه درخواست\n2. **Human-in-the-Loop** — تأیید + بازخورد متنی در بله (Telegram node + Bale account)\n3. **Coder** — تولید پروژه C# / .NET 8\n4. **Sandbox Docker** — اجرای واقعی با timeout\n5. **Reviewer/Tester** — قضاوت روی خروجی واقعی\n6. **Fixer** — حداکثر ۳ اصلاح\n\nمدل همه نقش‌ها: `gpt-5.6-luna`",
+        "width": 520,
+        "height": 360,
+        "color": 6
+      },
+      "id": "a5bac149-01b5-48b3-aa26-f50b76a80405",
+      "name": "Sticky architecture",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## محدودیت منابع\n\n- حداکثر ۳ تلاش Fixer\n- timeout کل ورک‌فلو: ۱۵ دقیقه\n- timeout هر اجرای sandbox: ۶۰ ثانیه\n- حافظه کانتینر: ۱GB\n\nاگر موفق نشد، گزارش Markdown می‌گوید کجا گیر کرد.",
+        "width": 420,
+        "height": 240,
+        "color": 5
+      },
+      "id": "cda3cca9-aff5-4e29-a84f-16c5bfd6c6b9",
+      "name": "Sticky limits",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## حافظه و GitHub\n\n- کوتاه‌مدت: state بین نودها (`attempts`, فایل‌ها، خطاها)\n- بلندمدت: Data Table `coding_agent_memory`\n- خروجی: PR روی `ashkandehnavi/n8n-code`",
+        "width": 420,
+        "height": 240,
+        "color": 4
+      },
+      "id": "1895be05-65a1-41db-8948-279bd6409cd9",
+      "name": "Sticky memory github",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5080,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "formTitle": "ایجنت کدنویس C#",
+        "formDescription": "درخواست را بنویسید. برنامه به بله ارسال می‌شود؛ تأیید و بازخورد متنی را همان‌جا بدهید. سپس کد تولید، در sandbox اجرا و در GitHub به‌صورت PR ثبت می‌شود.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "درخواست",
+              "fieldName": "user_request",
+              "fieldType": "textarea",
+              "placeholder": "مثال: یک اپ کنسول مدیریت وظایف با دسته‌بندی بساز",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "نام پروژه (اختیاری)",
+              "fieldName": "project_name",
+              "fieldType": "text",
+              "placeholder": "task-manager"
+            }
+          ]
+        },
+        "responseMode": "onReceived",
+        "options": {
+          "path": "coding-agent",
+          "buttonLabel": "شروع",
+          "appendAttribution": false,
+          "respondWith": "text",
+          "formSubmittedText": "درخواست ثبت شد. برنامه Planner به بله ارسال می‌شود؛ پاسخ را در همان چت بدهید."
+        }
+      },
+      "id": "cf779af6-f0e2-43d8-8b8e-59e7032c5051",
+      "name": "On form submission",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "274d7768-6d41-4e71-a019-f877b83d70d8"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "GLZaGFNzA5EP8Jyl",
+          "mode": "list",
+          "cachedResultName": "coding_agent_memory"
+        },
+        "returnAll": false,
+        "limit": 8,
+        "orderBy": true,
+        "orderByColumn": "createdAt",
+        "orderByDirection": "DESC",
+        "matchType": "anyCondition",
+        "filters": {}
+      },
+      "id": "4a253566-4ff2-4e9e-85de-af1f32f2ffe5",
+      "name": "Load long-term memory",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const form = $('On form submission').first().json;\nconst memory = $input.all().map(i => ({\n  user_request: i.json.user_request || '',\n  lesson: i.json.lesson || ''\n})).filter(x => x.lesson || x.user_request);\n\nconst runId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);\nreturn [{ json: {\n  run_id: runId,\n  started_at: new Date().toISOString(),\n  user_request: form.user_request || form['درخواست'] || '',\n  project_name: form.project_name || form['نام پروژه (اختیاری)'] || ('app-' + runId),\n  memory,\n  plan_round: 1,\n  max_plan_rounds: 3,\n  fix_attempt: 0,\n  max_fix: 3,\n  human_feedback: '',\n  decision: '',\n  plan: null,\n  files: {},\n  kind: 'console',\n  attempts: [],\n  execution: null,\n  review: null,\n  github: null,\n  sandbox_url: \"https://SANDBOX_URL_PLACEHOLDER\",\n  sandbox_token: \"SANDBOX_TOKEN_PLACEHOLDER\"\n}}];"
+      },
+      "id": "fad72c4b-1058-4169-ae79-b7d4b3aa89b3",
+      "name": "Init State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.item.json }];"
+      },
+      "id": "f9ee9bca-a353-4f5d-8f63-e129760306e9",
+      "name": "Plan Anchor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $input.item.json;\nconst mem = (s.memory || []).slice(0, 8).map((m, i) =>\n  `#${i+1} request: ${m.user_request}\\nlesson: ${m.lesson}`).join('\\n\\n') || '(empty)';\nconst prompt = [\n  'User request:', s.user_request,\n  '',\n  'Project name:', s.project_name,\n  '',\n  'Plan round:', s.plan_round, 'of', s.max_plan_rounds,\n  '',\n  'Human feedback so far:', s.human_feedback || '(none)',\n  '',\n  'Long-term memory from previous runs:',\n  mem\n].join('\\n');\nreturn [{ json: { ...s, prompt } }];"
+      },
+      "id": "05e958d1-bdf3-4317-a04f-7579fcb9d82d",
+      "name": "Build Planner Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {
+          "systemMessage": "You are Planner, one role in a multi-agent C# coding system.\nAlways use model-facing JSON only. No markdown fences.\n\nThe user request may be in Persian or English. Think in the user's language for titles/summaries.\nYou only PLAN. Do not write source code.\n\nOutput exactly this JSON schema:\n{\n  \"title\": \"string\",\n  \"summary\": \"string\",\n  \"assumptions\": [\"string\"],\n  \"steps\": [\"string\"],\n  \"files\": [{\"path\": \"string\", \"purpose\": \"string\"}],\n  \"kind\": \"console\" or \"web\",\n  \"run_expectation\": \"what a successful sandbox run should print or return\",\n  \"risks\": [\"string\"]\n}\n\nRules:\n- Target .NET 8 C# only. No JavaScript, Python, or other languages.\n- Prefer a small, testable console app unless the user clearly asked for a web API.\n- Keep scope small enough to compile and run in an isolated sandbox within 60 seconds.\n- If the request is vague, pick reasonable defaults and list them in assumptions.\n- If previous human feedback exists, incorporate it.\n- If long-term memory lessons exist, reuse patterns that worked and avoid known failures.\n",
+          "maxIterations": 3
+        }
+      },
+      "id": "5e1d2b41-f19b-4a44-8acc-a86772b83f0f",
+      "name": "Planner",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.6-luna",
+          "mode": "id"
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "2927c2a8-5763-4c3b-bd64-24a29823c5e2",
+      "name": "LLM Planner gpt-5.6-luna",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1200,
+        260
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "i92Ks4Gct1VxKMmv",
+          "name": "OpenAI account Proxy"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction extractJson(text) {\n  if (text && typeof text === 'object' && !Array.isArray(text)) return text;\n  const raw0 = String(text || '').trim();\n  const unfenced = raw0.replace(/```json/gi, '```');\n  const fence = unfenced.match(/```\\s*([\\s\\S]*?)```/);\n  const raw = fence ? fence[1] : unfenced;\n  const start = raw.indexOf('{');\n  const end = raw.lastIndexOf('}');\n  if (start < 0 || end <= start) throw new Error('Model did not return JSON');\n  return JSON.parse(raw.slice(start, end + 1));\n}\nfunction escapeHtml(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\n}\nconst s = $('Build Planner Prompt').item.json;\nlet plan;\ntry { plan = extractJson($input.item.json.output); }\ncatch (e) {\n  plan = {\n    title: s.project_name,\n    summary: 'Planner JSON parse failed; using a minimal console app plan. ' + e.message,\n    assumptions: ['Fallback plan because planner output was not valid JSON'],\n    steps: ['Create a .NET 8 console app that prints a result for the user request'],\n    files: [{ path: 'Program.cs', purpose: 'entry' }, { path: 'App.csproj', purpose: 'project' }],\n    kind: 'console',\n    run_expectation: 'Process exits 0 and prints a short success message',\n    risks: ['Original planner output was malformed']\n  };\n}\nconst planText = JSON.stringify(plan, null, 2);\nlet plan_telegram = '📋 برنامه Planner\\n\\nعنوان: ' + (plan.title || '') +\n  '\\nخلاصه: ' + (plan.summary || '') +\n  '\\n\\n' + planText;\nif (plan_telegram.length > 3500) plan_telegram = plan_telegram.slice(0, 3500) + '\\n…';\nplan_telegram += '\\n\\nدکمه را بزنید. تصمیم (تأیید یا اصلاح) و بازخورد متنی را بفرستید. بازخورد خالی مجاز نیست.';\nreturn [{ json: { ...s, plan, kind: plan.kind || 'console', plan_telegram } }];"
+      },
+      "id": "f66edf0f-623a-403c-8765-a0a489ad2d4d",
+      "name": "Parse Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "1753826181",
+        "message": "={{ $json.plan_telegram }}",
+        "responseType": "customForm",
+        "defineForm": "fields",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "تصمیم",
+              "fieldName": "decision",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "تأیید و ادامه"
+                  },
+                  {
+                    "option": "اصلاح برنامه"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "بازخورد متنی",
+              "fieldName": "feedback",
+              "fieldType": "textarea",
+              "placeholder": "حتماً بنویسید: تأیید با توضیح، یا تغییرات درخواستی",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "messageButtonLabel": "بازخورد بده",
+          "responseFormTitle": "بازبینی برنامه Planner",
+          "responseFormDescription": "تصمیم بگیرید و بازخورد متنی بنویسید. بازخورد خالی مجاز نیست.",
+          "responseFormButtonLabel": "ارسال"
+        }
+      },
+      "id": "790e4184-be75-40ad-9aa6-35b40fc176d4",
+      "name": "Human review of plan",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1760,
+        0
+      ],
+      "webhookId": "151a1613-75c9-4e53-b2d2-198a1ba0e64e",
+      "credentials": {
+        "telegramApi": {
+          "id": "PNyaR1tMoqmUKJQW",
+          "name": "Bale account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $('Parse Plan').item.json;\nconst form = $input.item.json || {};\nconst data = form.data || form;\nconst decision = data.decision || data['تصمیم'] || form.decision || form.text || data.text || '';\nconst feedback = data.feedback || data['بازخورد متنی'] || form.feedback || form.text || data.text || '';\ns.decision = String(decision);\ns.human_feedback = [s.human_feedback, feedback].filter(Boolean).join('\\n---\\n');\ns.needs_replan = String(decision).includes('اصلاح') && (s.plan_round < s.max_plan_rounds);\nif (s.needs_replan) s.plan_round += 1;\nreturn [{ json: s }];"
+      },
+      "id": "00829d48-f7e3-4b7f-8eae-22d2554dee9a",
+      "name": "Apply human feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f74477fb-8391-4541-a8e6-16998f35ea9c",
+              "leftValue": "={{ $json.needs_replan }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "eeb80f60-fb3c-4a1a-b96d-4b155fa91fa6",
+      "name": "Need replan?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $input.item.json;\nconst prompt = [\n  'User request:', s.user_request,\n  '',\n  'Human feedback:', s.human_feedback || '(none)',\n  '',\n  'Approved plan JSON:',\n  JSON.stringify(s.plan, null, 2)\n].join('\\n');\nreturn [{ json: { ...s, prompt } }];"
+      },
+      "id": "18cbb603-fc20-4c1c-9ab8-a99e70b28f61",
+      "name": "Build Coder Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {
+          "systemMessage": "You are Coder. Write a complete .NET 8 C# project from the approved plan.\nOutput JSON only, no markdown fences.\n\nSchema:\n{\n  \"kind\": \"console\" or \"web\",\n  \"files\": {\n     \"relative/path.cs\": \"full file contents\",\n     \"App.csproj\": \"csproj contents\"\n  },\n  \"notes\": \"short\"\n}\n\nRules:\n- C# / .NET 8 only.\n- Always include a .csproj targeting net8.0.\n- Console apps must write a clear success line to stdout.\n- Web apps must use WebApplication.CreateBuilder, listen on ASPNETCORE_URLS, and expose GET /.\n- Do not use external NuGet packages except the BCL / shared framework.\n- No network calls, no file system access outside the app directory, no infinite loops.\n- Produce a complete project that `dotnet restore && dotnet build && dotnet run` can execute.\n- If human feedback exists, honor it.\n",
+          "maxIterations": 3
+        }
+      },
+      "id": "3aa5e129-1eb3-4a19-981f-6b56fe998fac",
+      "name": "Coder",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        2800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.6-luna",
+          "mode": "id"
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "55c068ff-e689-4078-9917-79b9b5483058",
+      "name": "LLM Coder gpt-5.6-luna",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        2800,
+        260
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "i92Ks4Gct1VxKMmv",
+          "name": "OpenAI account Proxy"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction extractJson(text) {\n  if (text && typeof text === 'object' && !Array.isArray(text)) return text;\n  const raw0 = String(text || '').trim();\n  const unfenced = raw0.replace(/```json/gi, '```');\n  const fence = unfenced.match(/```\\s*([\\s\\S]*?)```/);\n  const raw = fence ? fence[1] : unfenced;\n  const start = raw.indexOf('{');\n  const end = raw.lastIndexOf('}');\n  if (start < 0 || end <= start) throw new Error('Model did not return JSON');\n  return JSON.parse(raw.slice(start, end + 1));\n}\nfunction escapeHtml(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\n}\nconst s = $('Build Coder Prompt').item.json;\nlet payload;\ntry { payload = extractJson($input.item.json.output); }\ncatch (e) {\n  payload = {\n    kind: 'console',\n    files: {\n      'App.csproj': '<Project Sdk=\"Microsoft.NET.Sdk\">\\n  <PropertyGroup>\\n    <OutputType>Exe</OutputType>\\n    <TargetFramework>net8.0</TargetFramework>\\n    <ImplicitUsings>enable</ImplicitUsings>\\n    <Nullable>enable</Nullable>\\n  </PropertyGroup>\\n</Project>\\n',\n      'Program.cs': 'Console.WriteLine(\"Coder JSON parse failed: ' + String(e.message).replace(/\"/g, '') + '\");\\n'\n    },\n    notes: 'fallback because coder output was not JSON'\n  };\n}\nconst files = payload.files || {};\nif (!Object.keys(files).length) throw new Error('Coder returned no files');\nreturn [{ json: { ...s, files, kind: payload.kind || s.kind || 'console', coder_notes: payload.notes || '' } }];"
+      },
+      "id": "30ac02e3-c00f-4268-b3ba-b2821dbba537",
+      "name": "Parse Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $input.item.json }];"
+      },
+      "id": "ce5c8fb4-47d5-4652-9b87-39ad6d72ddc6",
+      "name": "Loop Anchor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.sandbox_url }}/execute",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Sandbox-Token",
+              "value": "={{ $json.sandbox_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ run_id: $json.run_id, kind: $json.kind, timeout_seconds: 60, files: $json.files }) }}",
+        "options": {
+          "timeout": 130000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "44ad4892-dbc7-4e6d-8827-7882fe531c3e",
+      "name": "Execute in C# sandbox",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3560,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $('Loop Anchor').item.json;\nconst exec = $input.item.json || {};\nstate.execution = exec;\nstate.attempts = state.attempts || [];\nstate.attempts.push({\n  n: state.attempts.length + 1,\n  stage: exec.stage || 'run',\n  ok: !!exec.ok,\n  exit_code: exec.exit_code,\n  timed_out: !!exec.timed_out,\n  stdout: exec.stdout || '',\n  stderr: exec.stderr || '',\n  http_body: exec.http_body || '',\n  duration_ms: exec.duration_ms\n});\nreturn [{ json: state }];"
+      },
+      "id": "be86f60e-9dbc-4986-8b4d-0a6d1bc711b2",
+      "name": "Merge sandbox result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $input.item.json;\nconst fileList = Object.keys(s.files || {}).join(', ');\nconst prompt = [\n  'User request:', s.user_request,\n  '',\n  'Plan:', JSON.stringify(s.plan, null, 2),\n  '',\n  'Human feedback:', s.human_feedback || '(none)',\n  '',\n  'Files:', fileList,\n  '',\n  'Sandbox result JSON:', JSON.stringify(s.execution, null, 2),\n  '',\n  'Previous attempts:', JSON.stringify(s.attempts, null, 2)\n].join('\\n');\nreturn [{ json: { ...s, prompt } }];"
+      },
+      "id": "30f80680-e9bb-4cee-8d26-eb34fffe8449",
+      "name": "Build Reviewer Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {
+          "systemMessage": "You are Reviewer/Tester. You receive the plan, the generated files, and REAL sandbox execution results.\nDecide if the run satisfies the plan. Output JSON only.\n\nSchema:\n{\n  \"passed\": true or false,\n  \"summary\": \"string\",\n  \"issues\": [\"string\"],\n  \"stdout_assessment\": \"string\"\n}\n\nRules:\n- passed=true only if the sandbox compiled and ran (exit 0, not timed out) AND output matches the plan reasonably.\n- Compile errors, timeouts, empty output when output was expected, or runtime exceptions => passed=false.\n- Be strict but practical. A small working app beats an incomplete large one.\n",
+          "maxIterations": 3
+        }
+      },
+      "id": "19b824c3-de11-44b4-b0ca-0f8a646a8581",
+      "name": "Reviewer / Tester",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        4280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.6-luna",
+          "mode": "id"
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "23e770b9-35e4-4167-a549-8d46115df55d",
+      "name": "LLM Reviewer gpt-5.6-luna",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        4280,
+        260
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "i92Ks4Gct1VxKMmv",
+          "name": "OpenAI account Proxy"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction extractJson(text) {\n  if (text && typeof text === 'object' && !Array.isArray(text)) return text;\n  const raw0 = String(text || '').trim();\n  const unfenced = raw0.replace(/```json/gi, '```');\n  const fence = unfenced.match(/```\\s*([\\s\\S]*?)```/);\n  const raw = fence ? fence[1] : unfenced;\n  const start = raw.indexOf('{');\n  const end = raw.lastIndexOf('}');\n  if (start < 0 || end <= start) throw new Error('Model did not return JSON');\n  return JSON.parse(raw.slice(start, end + 1));\n}\nfunction escapeHtml(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\n}\nconst s = $('Build Reviewer Prompt').item.json;\nlet review;\ntry { review = extractJson($input.item.json.output); }\ncatch (e) {\n  review = {\n    passed: false,\n    summary: 'Reviewer JSON parse failed: ' + e.message,\n    issues: ['Could not parse reviewer output'],\n    stdout_assessment: ''\n  };\n}\nif (s.execution && s.execution.ok === false) review.passed = false;\nconst needs_fix = review.passed !== true && s.fix_attempt < s.max_fix;\nreturn [{ json: { ...s, review, needs_fix } }];"
+      },
+      "id": "5cb8c8ce-95f4-44c1-a9b2-50ec041bfdc4",
+      "name": "Parse Review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0f5ff584-af33-4cc1-aa81-2dffb5448388",
+              "leftValue": "={{ $json.needs_fix }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ba4e14c6-733c-4cff-a7e6-429c71d4811a",
+      "name": "Need fix?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $input.item.json;\nconst files = Object.keys(s.files || {});\nconst attempts = s.attempts || [];\nconst passed = !!(s.review && s.review.passed);\ns.report_md = [\n  '# گزارش اجرای ایجنت کدنویس',\n  '',\n  '- Run ID: `' + s.run_id + '`',\n  '- زمان شروع: ' + s.started_at,\n  '- مدل: `gpt-5.6-luna`',\n  '- نتیجه موقت: ' + (passed ? 'موفق' : 'ناموفق تا این لحظه'),\n  '',\n  '## درخواست کاربر',\n  '',\n  s.user_request,\n  '',\n  '## بازخورد انسان',\n  '',\n  s.human_feedback || '(ثبت نشد)',\n  '',\n  '## برنامه Planner',\n  '',\n  '```json',\n  JSON.stringify(s.plan, null, 2),\n  '```',\n  '',\n  '## فایل‌های پروژه',\n  '',\n  files.map(f => '- `' + f + '`').join('\\n') || '(هیچ)',\n  '',\n  '## نتیجه اجرای واقعی sandbox',\n  '',\n  '```json',\n  JSON.stringify(s.execution, null, 2),\n  '```'\n].join('\\n');\nreturn [{ json: s }];"
+      },
+      "id": "d4fb8143-906a-4bfe-a7b3-48d5d1e8386e",
+      "name": "Draft report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5080,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $input.item.json;\ns.fix_attempt = (s.fix_attempt || 0) + 1;\nconst prompt = [\n  'User request:', s.user_request,\n  '',\n  'Plan:', JSON.stringify(s.plan, null, 2),\n  '',\n  'Human feedback:', s.human_feedback || '(none)',\n  '',\n  'Fix attempt:', s.fix_attempt, 'of', s.max_fix,\n  '',\n  'Current files JSON:', JSON.stringify(s.files),\n  '',\n  'Last sandbox result:', JSON.stringify(s.execution, null, 2),\n  '',\n  'Reviewer issues:', JSON.stringify(s.review, null, 2),\n  '',\n  'Prior attempts (do not repeat failing approaches):',\n  JSON.stringify(s.attempts, null, 2)\n].join('\\n');\nreturn [{ json: { ...s, prompt } }];"
+      },
+      "id": "dbf7bd4f-f4df-4021-8f2b-36b3430ae9ce",
+      "name": "Build Fixer Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {
+          "systemMessage": "You are Fixer. You receive the current files plus the real sandbox error/output and reviewer issues.\nRewrite the project so the next sandbox run succeeds. Output JSON only, same schema as Coder:\n\n{\n  \"kind\": \"console\" or \"web\",\n  \"files\": {\"relative/path\": \"contents\"},\n  \"notes\": \"what you changed\"\n}\n\nRules:\n- C# / .NET 8 only. Full files, not patches.\n- Fix the actual error text. Do not repeat a previous failing approach if it is listed in prior attempts.\n- Keep the approved plan and human feedback.\n- No extra NuGet packages.\n",
+          "maxIterations": 3
+        }
+      },
+      "id": "3fb146e4-4a0a-4bb8-bca5-c29c0191075c",
+      "name": "Fixer",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        5080,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.6-luna",
+          "mode": "id"
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "fb66f168-74fa-4756-a3e5-2f8258801a9c",
+      "name": "LLM Fixer gpt-5.6-luna",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        5080,
+        520
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "i92Ks4Gct1VxKMmv",
+          "name": "OpenAI account Proxy"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction extractJson(text) {\n  if (text && typeof text === 'object' && !Array.isArray(text)) return text;\n  const raw0 = String(text || '').trim();\n  const unfenced = raw0.replace(/```json/gi, '```');\n  const fence = unfenced.match(/```\\s*([\\s\\S]*?)```/);\n  const raw = fence ? fence[1] : unfenced;\n  const start = raw.indexOf('{');\n  const end = raw.lastIndexOf('}');\n  if (start < 0 || end <= start) throw new Error('Model did not return JSON');\n  return JSON.parse(raw.slice(start, end + 1));\n}\nfunction escapeHtml(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\n}\nconst s = $('Build Fixer Prompt').item.json;\nlet payload;\ntry { payload = extractJson($input.item.json.output); }\ncatch (e) {\n  payload = { kind: s.kind, files: s.files, notes: 'Fixer JSON parse failed: ' + e.message };\n}\nconst files = payload.files && Object.keys(payload.files).length ? payload.files : s.files;\nreturn [{ json: { ...s, files, kind: payload.kind || s.kind, fixer_notes: payload.notes || '' } }];"
+      },
+      "id": "4de5ccc9-d49d-4920-b377-9ac2588f5aad",
+      "name": "Parse Fix",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5360,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.sandbox_url }}/github/publish",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Sandbox-Token",
+              "value": "={{ $json.sandbox_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ run_id: $json.run_id, title: 'feat: ' + ($json.plan && $json.plan.title ? $json.plan.title : $json.project_name), body: 'Automated PR from n8n coding agent.\\n\\nRequest:\\n' + $json.user_request + '\\n\\nHuman feedback:\\n' + ($json.human_feedback || '(none)'), files: $json.files, report_md: $json.report_md || '' }) }}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "f1908bd1-8773-4d80-bfbf-b819d86e66a2",
+      "name": "Open GitHub PR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5080,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $('Parse Review').item.json;\ns.github = $input.item.json || {};\nconst passed = !!(s.review && s.review.passed);\nconst stuck = !passed;\nconst files = Object.keys(s.files || {});\nconst attempts = s.attempts || [];\nconst last = attempts[attempts.length - 1] || {};\nconst lessonObj = {\n  run_id: s.run_id,\n  success: passed,\n  kind: s.kind,\n  fix_attempts: s.fix_attempt,\n  last_stage: last.stage || null,\n  last_stderr: (last.stderr || '').slice(0, 500),\n  github_pr: s.github.pr_url || s.github.html_url || '',\n  pattern: passed ? 'Succeeded with this plan/kind' : 'Failed after max fixes; avoid this error pattern'\n};\ns.lesson = JSON.stringify(lessonObj);\ns.stuck = stuck;\ns.report_md = [\n  '# گزارش اجرای ایجنت کدنویس',\n  '',\n  '- Run ID: `' + s.run_id + '`',\n  '- زمان شروع: ' + s.started_at,\n  '- مدل: `gpt-5.6-luna`',\n  '- نتیجه: ' + (passed ? 'موفق' : 'ناموفق / گیر کرده پس از محدودیت‌ها'),\n  '',\n  '## درخواست کاربر',\n  '',\n  s.user_request,\n  '',\n  '## بازخورد انسان',\n  '',\n  s.human_feedback || '(ثبت نشد)',\n  '',\n  '## برنامه Planner',\n  '',\n  '```json',\n  JSON.stringify(s.plan, null, 2),\n  '```',\n  '',\n  '## فایل‌های پروژه',\n  '',\n  files.map(f => '- `' + f + '`').join('\\n') || '(هیچ)',\n  '',\n  '## نتیجه اجرای واقعی sandbox',\n  '',\n  '```json',\n  JSON.stringify(s.execution, null, 2),\n  '```',\n  '',\n  '## تلاش‌های اصلاح (حداکثر ۳)',\n  '',\n  '```json',\n  JSON.stringify(attempts, null, 2),\n  '```',\n  '',\n  '## نظر Reviewer',\n  '',\n  '```json',\n  JSON.stringify(s.review, null, 2),\n  '```',\n  '',\n  '## GitHub PR',\n  '',\n  s.github.pr_url || s.github.error || JSON.stringify(s.github),\n  '',\n  stuck ? '## چرا گیر کرد\\n\\nپس از ' + s.fix_attempt + ' تلاش اصلاح، اجرا موفق نشد. آخرین خطا در stderr بالا آمده است.' : ''\n].join('\\n');\ns.report_html = '<pre>' + s.report_md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>';\nreturn [{ json: s }];"
+      },
+      "id": "56cddc8e-dd3d-4020-9ffc-b38e3bf3b18f",
+      "name": "Merge GitHub result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "GLZaGFNzA5EP8Jyl",
+          "mode": "list",
+          "cachedResultName": "coding_agent_memory"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "user_request": "={{ $json.user_request }}",
+            "lesson": "={{ $json.lesson }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_request",
+              "displayName": "user_request",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lesson",
+              "displayName": "lesson",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6044c695-7575-482d-8253-8e77e88866b6",
+      "name": "Save long-term memory",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        5560,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $('Merge GitHub result').item.json;\nlet text = String(s.report_md || '');\nif (text.length > 4000) text = text.slice(0, 4000) + '\\n…';\nreturn [{ json: { ...s, report_telegram: text } }];"
+      },
+      "id": "c4a4cc93-4a89-40db-a971-eb1d14240ec7",
+      "name": "Prepare report for Bale",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "1753826181",
+        "text": "={{ $json.report_telegram }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "25eaf279-dbd0-44bc-ad26-3f4cccda9730",
+      "name": "Send Markdown report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        6040,
+        0
+      ],
+      "webhookId": "967975bc-b1fb-4f08-a582-0c25dd0e98e9",
+      "credentials": {
+        "telegramApi": {
+          "id": "PNyaR1tMoqmUKJQW",
+          "name": "Bale account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Load long-term memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load long-term memory": {
+      "main": [
+        [
+          {
+            "node": "Init State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init State": {
+      "main": [
+        [
+          {
+            "node": "Plan Anchor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Anchor": {
+      "main": [
+        [
+          {
+            "node": "Build Planner Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Planner Prompt": {
+      "main": [
+        [
+          {
+            "node": "Planner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Planner gpt-5.6-luna": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Planner",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planner": {
+      "main": [
+        [
+          {
+            "node": "Parse Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Plan": {
+      "main": [
+        [
+          {
+            "node": "Human review of plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Human review of plan": {
+      "main": [
+        [
+          {
+            "node": "Apply human feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply human feedback": {
+      "main": [
+        [
+          {
+            "node": "Need replan?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Need replan?": {
+      "main": [
+        [
+          {
+            "node": "Plan Anchor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Coder Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Coder Prompt": {
+      "main": [
+        [
+          {
+            "node": "Coder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Coder gpt-5.6-luna": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Coder",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coder": {
+      "main": [
+        [
+          {
+            "node": "Parse Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Code": {
+      "main": [
+        [
+          {
+            "node": "Loop Anchor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Anchor": {
+      "main": [
+        [
+          {
+            "node": "Execute in C# sandbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute in C# sandbox": {
+      "main": [
+        [
+          {
+            "node": "Merge sandbox result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge sandbox result": {
+      "main": [
+        [
+          {
+            "node": "Build Reviewer Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reviewer Prompt": {
+      "main": [
+        [
+          {
+            "node": "Reviewer / Tester",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Reviewer gpt-5.6-luna": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reviewer / Tester",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviewer / Tester": {
+      "main": [
+        [
+          {
+            "node": "Parse Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Review": {
+      "main": [
+        [
+          {
+            "node": "Need fix?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Need fix?": {
+      "main": [
+        [
+          {
+            "node": "Build Fixer Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Draft report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft report": {
+      "main": [
+        [
+          {
+            "node": "Open GitHub PR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Fixer Prompt": {
+      "main": [
+        [
+          {
+            "node": "Fixer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Fixer gpt-5.6-luna": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Fixer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fixer": {
+      "main": [
+        [
+          {
+            "node": "Parse Fix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Fix": {
+      "main": [
+        [
+          {
+            "node": "Loop Anchor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open GitHub PR": {
+      "main": [
+        [
+          {
+            "node": "Merge GitHub result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge GitHub result": {
+      "main": [
+        [
+          {
+            "node": "Save long-term memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save long-term memory": {
+      "main": [
+        [
+          {
+            "node": "Prepare report for Bale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare report for Bale": {
+      "main": [
+        [
+          {
+            "node": "Send Markdown report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "executionTimeout": 900,
+    "timezone": "Asia/Tehran"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

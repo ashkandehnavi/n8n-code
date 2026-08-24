@@ -1,0 +1,11 @@
+.env
+sandbox/.env
+sandbox/tunnel-url.txt
+sandbox/cloudflared.log
+**/bin/
+**/obj/
+.DS_Store
+*.user
+*.log
+n8n-cookie.txt
+.n8n-cookie
