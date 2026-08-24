@@ -17,10 +17,19 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 });
 
 var app = builder.Build();
-var expectedToken = Environment.GetEnvironmentVariable("SANDBOX_TOKEN") ?? "";
 var githubToken = Environment.GetEnvironmentVariable("GH_TOKEN") ?? "";
 var githubRepo = Environment.GetEnvironmentVariable("GITHUB_REPO") ?? "ashkandehnavi/n8n-code";
 var githubApi = Environment.GetEnvironmentVariable("GITHUB_API") ?? "https://api.github.com";
+Paths.CliHomeDir = Directory.Exists("/tmp") ? "/tmp" : Path.GetTempPath();
+Paths.WorkRoot = Environment.GetEnvironmentVariable("SANDBOX_WORK_DIR") ?? "";
+if (string.IsNullOrWhiteSpace(Paths.WorkRoot))
+{
+    Paths.WorkRoot = Directory.Exists("/work") ? "/work" : Path.Combine(Paths.CliHomeDir, "csharp-sandbox-work");
+}
+Directory.CreateDirectory(Paths.WorkRoot);
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
 var jsonOpts = new JsonSerializerOptions
 {
     PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -29,31 +38,6 @@ var jsonOpts = new JsonSerializerOptions
     WriteIndented = false
 };
 
-app.Use(async (ctx, next) =>
-{
-    if (ctx.Request.Path == "/health")
-    {
-        await next();
-        return;
-    }
-
-    if (string.IsNullOrWhiteSpace(expectedToken))
-    {
-        ctx.Response.StatusCode = 500;
-        await ctx.Response.WriteAsJsonAsync(new { ok = false, error = "SANDBOX_TOKEN is not configured" });
-        return;
-    }
-
-    if (!ctx.Request.Headers.TryGetValue("X-Sandbox-Token", out var got) || got.ToString() != expectedToken)
-    {
-        ctx.Response.StatusCode = 401;
-        await ctx.Response.WriteAsJsonAsync(new { ok = false, error = "unauthorized" });
-        return;
-    }
-
-    await next();
-});
-
 app.MapGet("/health", () => Results.Json(new
 {
     ok = true,
@@ -61,11 +45,19 @@ app.MapGet("/health", () => Results.Json(new
     runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
 }));
 
+app.MapGet("/meta", () => Results.Json(new
+{
+    ok = true,
+    ui = true,
+    github_configured = !string.IsNullOrWhiteSpace(githubToken),
+    github_repo = githubRepo
+}));
+
 app.MapPost("/execute", async (ExecuteRequest req, CancellationToken ct) =>
 {
     var timeout = Math.Clamp(req.TimeoutSeconds <= 0 ? 60 : req.TimeoutSeconds, 5, 120);
     var runId = SanitizeId(string.IsNullOrWhiteSpace(req.RunId) ? Guid.NewGuid().ToString("N") : req.RunId);
-    var work = Path.Combine("/work", runId);
+    var work = Path.Combine(Paths.WorkRoot, runId);
     var started = Stopwatch.StartNew();
 
     try
@@ -76,7 +68,7 @@ app.MapPost("/execute", async (ExecuteRequest req, CancellationToken ct) =>
         }
 
         PrepareWorkspace(work, req.Files);
-        EnsureProjectFile(work);
+        EnsureProjectFile(work, req.Kind);
 
         var restore = await RunDotnet(work, ["restore", "--disable-parallel"], 90, ct);
         if (restore.ExitCode != 0)
@@ -262,11 +254,22 @@ static void PrepareWorkspace(string work, Dictionary<string, string> files)
     }
 }
 
-static void EnsureProjectFile(string work)
+static void EnsureProjectFile(string work, string? kind)
 {
     if (Directory.EnumerateFiles(work, "*.csproj", SearchOption.AllDirectories).Any()) return;
 
-    var csproj = """
+    var isWeb = string.Equals(kind, "web", StringComparison.OrdinalIgnoreCase) || DetectKind(work) == "web";
+    var csproj = isWeb
+        ? """
+        <Project Sdk="Microsoft.NET.Sdk.Web">
+          <PropertyGroup>
+            <TargetFramework>net8.0</TargetFramework>
+            <Nullable>enable</Nullable>
+            <ImplicitUsings>enable</ImplicitUsings>
+          </PropertyGroup>
+        </Project>
+        """
+        : """
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
             <OutputType>Exe</OutputType>
@@ -306,8 +309,8 @@ static async Task<CommandResult> RunDotnet(string work, string[] args, int timeo
         CreateNoWindow = true
     };
     foreach (var a in args) psi.ArgumentList.Add(a);
-    psi.Environment["DOTNET_CLI_HOME"] = "/tmp";
-    psi.Environment["HOME"] = "/tmp";
+    psi.Environment["DOTNET_CLI_HOME"] = Paths.CliHomeDir;
+    psi.Environment["HOME"] = Paths.CliHomeDir;
     psi.Environment["DOTNET_NOLOGO"] = "1";
     psi.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
 
@@ -350,8 +353,8 @@ static async Task<CommandResult> RunWebProject(string work, int port, int timeou
     psi.ArgumentList.Add("-c");
     psi.ArgumentList.Add("Release");
     psi.ArgumentList.Add("--no-restore");
-    psi.Environment["DOTNET_CLI_HOME"] = "/tmp";
-    psi.Environment["HOME"] = "/tmp";
+    psi.Environment["DOTNET_CLI_HOME"] = Paths.CliHomeDir;
+    psi.Environment["HOME"] = Paths.CliHomeDir;
     psi.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{port}";
     psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
 
@@ -542,4 +545,10 @@ sealed class GitHubClient
 
         return JsonDocument.Parse(text);
     }
+}
+
+static class Paths
+{
+    public static string WorkRoot = "/work";
+    public static string CliHomeDir = "/tmp";
 }

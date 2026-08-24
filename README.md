@@ -2,6 +2,8 @@
 
 پروژه نهایی: یک Coding Agent روی n8n که درخواست متنی را به برنامه تبدیل می‌کند، از انسان تأیید/بازخورد می‌گیرد، کد C# تولید می‌کند، آن را در Docker واقعاً اجرا می‌کند، تا ۳ بار با خطای واقعی اصلاح می‌کند، روی GitHub PR می‌سازد و گزارش Markdown می‌دهد.
 
+شرح اتصال نودها، حلقه‌ها و نحوهٔ اجرا: [ARCHITECTURE.md](./ARCHITECTURE.md)
+
 ## ورک‌فلو
 
 - اینستنس: `https://n8n.denox.ir/workflow/LkpwmWAnSXuBzQ8q`
@@ -24,20 +26,25 @@
 
 محدودیت کل ورک‌فلو: ۱۵ دقیقه. Timeout هر اجرا در sandbox: ۶۰ ثانیه. حافظه کانتینر: ۱GB.
 
-## اجرای sandbox (الزامی)
+## اجرای sandbox
 
-n8n روی denox است؛ sandbox باید از اینترنت دیده شود. کانتینر Docker کد را اجرا می‌کند و Cloudflare Tunnel آن را عمومی می‌کند.
+n8n روی denox به `https://sandbox.denox.ir` وصل می‌شود (پروکسی به Docker روی پورت 8099). تونل Cloudflare لازم نیست.
+
+برای اجرای محلی کانتینر:
 
 ```powershell
 .\scripts\start-sandbox.ps1
 ```
 
-Sandbox و تونل باید روی همین سیستم روشن بمانند. اگر URL تونل عوض شد، `scripts/build_workflow.py` و `scripts/upload_to_n8n.py` را دوباره اجرا کنید تا `Init State.sandbox_url` به‌روز شود.
+- UI محلی: `http://127.0.0.1:8099`
+- آدرس عمومی برای n8n: `https://sandbox.denox.ir`
 
 ## ساختار
 
 ```
-sandbox/          API اجرای C# + publish گیت‌هاب
+sandbox/          وب‌اپ سندباکس (UI + API اجرای C# + publish گیت‌هاب)
+                   محلی: http://127.0.0.1:8099
+                   عمومی: https://sandbox.denox.ir
 n8n/              خروجی JSON ورک‌فلو
 scripts/          ساخت و آپلود ورک‌فلو
 ```

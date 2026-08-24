@@ -10,6 +10,7 @@ RUN mkdir -p /work /tmp \
  && chmod 1777 /tmp /work
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080
+ENV ASPNETCORE_CONTENTROOT=/app/publish
 ENV DOTNET_CLI_HOME=/tmp
 ENV HOME=/tmp
 ENV DOTNET_NOLOGO=1

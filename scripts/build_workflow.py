@@ -204,7 +204,7 @@ function escapeHtml(s) {
 """
 
 
-def build_workflow(sandbox_url: str, sandbox_token: str) -> dict:
+def build_workflow(sandbox_url: str) -> dict:
     form_trigger = {
         "parameters": {
             "formTitle": "ایجنت کدنویس C#",
@@ -294,8 +294,7 @@ return [{{ json: {{
   execution: null,
   review: null,
   github: null,
-  sandbox_url: {json.dumps(sandbox_url)},
-  sandbox_token: {json.dumps(sandbox_token)}
+  sandbox_url: {json.dumps(sandbox_url)}
 }}}}];
 """.strip(),
     )
@@ -507,7 +506,6 @@ return [{ json: { ...s, files, kind: payload.kind || s.kind || 'console', coder_
             "sendHeaders": True,
             "headerParameters": {
                 "parameters": [
-                    {"name": "X-Sandbox-Token", "value": "={{ $json.sandbox_token }}"},
                     {"name": "Content-Type", "value": "application/json"},
                 ]
             },
@@ -730,7 +728,6 @@ return [{ json: s }];
             "sendHeaders": True,
             "headerParameters": {
                 "parameters": [
-                    {"name": "X-Sandbox-Token", "value": "={{ $json.sandbox_token }}"},
                     {"name": "Content-Type", "value": "application/json"},
                 ]
             },
@@ -1039,9 +1036,8 @@ return [{ json: { ...s, report_telegram: text } }];
 
 
 def main() -> None:
-    sandbox_url = os.environ.get("SANDBOX_URL", "https://SANDBOX_URL_PLACEHOLDER").rstrip("/")
-    sandbox_token = os.environ.get("SANDBOX_TOKEN", "SANDBOX_TOKEN_PLACEHOLDER")
-    wf = build_workflow(sandbox_url, sandbox_token)
+    sandbox_url = os.environ.get("SANDBOX_URL", "https://sandbox.denox.ir").rstrip("/")
+    wf = build_workflow(sandbox_url)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"wrote {OUT} nodes={len(wf['nodes'])}")
